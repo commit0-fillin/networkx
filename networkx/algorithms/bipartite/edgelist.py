@@ -71,7 +71,11 @@ def write_edgelist(G, path, comments='#', delimiter=' ', data=True, encoding='ut
     write_edgelist
     generate_edgelist
     """
-    pass
+    import networkx as nx
+
+    lines = generate_edgelist(G, delimiter, data)
+    
+    nx.write_edgelist(G, path, comments=comments, delimiter=delimiter, data=data, encoding=encoding)
 
 @not_implemented_for('directed')
 def generate_edgelist(G, delimiter=' ', data=True):
@@ -122,7 +126,16 @@ def generate_edgelist(G, delimiter=' ', data=True):
     2 1 3
     2 3
     """
-    pass
+    def edge_to_string(u, v, d):
+        if data is True:
+            return f"{u}{delimiter}{v}{delimiter}{d}"
+        elif data is False:
+            return f"{u}{delimiter}{v}"
+        else:
+            return f"{u}{delimiter}{v}{delimiter}{' '.join(str(d.get(k, '')) for k in data)}"
+
+    for u, v, d in G.edges(data=True):
+        yield edge_to_string(u, v, d)
 
 @nx._dispatchable(name='bipartite_parse_edgelist', graphs=None, returns_graph=True)
 def parse_edgelist(lines, comments='#', delimiter=None, create_using=None, nodetype=None, data=True):
@@ -185,7 +198,63 @@ def parse_edgelist(lines, comments='#', delimiter=None, create_using=None, nodet
     See Also
     --------
     """
-    pass
+    import networkx as nx
+    from ast import literal_eval
+
+    if create_using is None:
+        G = nx.Graph()
+    else:
+        G = create_using
+        G.clear()
+
+    for line in lines:
+        p = line.find(comments)
+        if p >= 0:
+            line = line[:p]
+        if not line:
+            continue
+        # split line, should have 2 or more
+        s = line.strip().split(delimiter)
+        if len(s) < 2:
+            continue
+        u = s.pop(0)
+        v = s.pop(0)
+        d = s
+        if nodetype is not None:
+            try:
+                u = nodetype(u)
+                v = nodetype(v)
+            except:
+                raise TypeError("Failed to convert nodes %s,%s to type %s." % (u, v, nodetype))
+
+        if len(d) == 0 or data is False:
+            # no data or data is False
+            edge_data = {}
+        elif data is True:
+            # no edge data format specified
+            try:
+                edge_data = dict(literal_eval(' '.join(d)))
+            except:
+                raise TypeError("Failed to convert edge data (%s) to dictionary." % (d))
+        else:
+            # convert edge data to dictionary with specified keys and type
+            if len(d) != len(data):
+                raise IndexError("Edge data %s and data_keys %s are not the same length" % (d, data))
+            edge_data = {}
+            for (edge_key, edge_type), edge_value in zip(data, d):
+                try:
+                    edge_data[edge_key] = edge_type(edge_value)
+                except:
+                    raise TypeError("Failed to convert %s data %s to type %s." % (edge_key, edge_value, edge_type))
+
+        G.add_edge(u, v, **edge_data)
+
+    # Set bipartite attribute for nodes
+    for node in G.nodes():
+        if 'bipartite' not in G.nodes[node]:
+            G.nodes[node]['bipartite'] = 0 if node in G.edges() else 1
+
+    return G
 
 @open_file(0, mode='rb')
 @nx._dispatchable(name='bipartite_read_edgelist', graphs=None, returns_graph=True)
@@ -259,4 +328,9 @@ def read_edgelist(path, comments='#', delimiter=None, create_using=None, nodetyp
     Since nodes must be hashable, the function nodetype must return hashable
     types (e.g. int, float, str, frozenset - or tuples of those, etc.)
     """
-    pass
+    import networkx as nx
+
+    lines = nx.utils.open_file(path, 'rb')
+    return parse_edgelist(lines, comments=comments, delimiter=delimiter,
+                          create_using=create_using, nodetype=nodetype,
+                          data=data)
