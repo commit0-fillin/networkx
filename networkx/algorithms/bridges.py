@@ -63,7 +63,33 @@ def bridges(G, root=None):
     ----------
     .. [1] https://en.wikipedia.org/wiki/Bridge_%28graph_theory%29#Bridge-Finding_with_Chain_Decompositions
     """
-    pass
+    if root is not None and root not in G:
+        raise nx.NodeNotFound(f"Node {root} is not in the graph.")
+
+    # Convert multigraph to simple graph if necessary
+    if G.is_multigraph():
+        H = nx.Graph(G)
+    else:
+        H = G
+
+    # Get the connected component containing the root if specified
+    if root is not None:
+        C = nx.node_connected_component(H, root)
+        H = H.subgraph(C)
+
+    # Find all chains in the graph
+    chains = nx.chain_decomposition(H)
+
+    # Collect all edges that are part of chains
+    chain_edges = set(chain.from_iterable(chains))
+
+    # Bridges are edges that are not part of any chain
+    for edge in H.edges():
+        if edge not in chain_edges and tuple(reversed(edge)) not in chain_edges:
+            # For multigraphs, verify that the edge is not a multi-edge
+            if G.is_multigraph() and G.number_of_edges(*edge) > 1:
+                continue
+            yield edge
 
 @not_implemented_for('directed')
 @nx._dispatchable
@@ -117,7 +143,11 @@ def has_bridges(G, root=None):
     graph and $m$ is the number of edges.
 
     """
-    pass
+    try:
+        next(bridges(G, root))
+        return True
+    except StopIteration:
+        return False
 
 @not_implemented_for('multigraph')
 @not_implemented_for('directed')
@@ -162,4 +192,16 @@ def local_bridges(G, with_span=True, weight=None):
        >>> (0, 8, 8) in set(nx.local_bridges(G))
        True
     """
-    pass
+    for u, v in G.edges():
+        if not set(G[u]) & set(G[v]):  # No common neighbors
+            if with_span:
+                # Remove the edge and compute the shortest path
+                G.remove_edge(u, v)
+                try:
+                    span = nx.shortest_path_length(G, u, v, weight=weight)
+                except nx.NetworkXNoPath:
+                    span = float('inf')
+                G.add_edge(u, v)
+                yield u, v, span
+            else:
+                yield u, v
