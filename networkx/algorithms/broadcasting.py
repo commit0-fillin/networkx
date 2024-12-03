@@ -47,7 +47,30 @@ def tree_broadcast_center(G):
     .. [1] Slater, P.J., Cockayne, E.J., Hedetniemi, S.T,
        Information dissemination in trees. SIAM J.Comput. 10(4), 692–701 (1981)
     """
-    pass
+    if not nx.is_tree(G):
+        raise NetworkXError("The graph G must be a tree.")
+
+    # If the tree has only one node, it is the broadcast center
+    if len(G) == 1:
+        return 0, set(G.nodes())
+
+    # Find the center of the tree
+    center = nx.center(G)
+
+    # Start from any center node
+    root = center[0]
+
+    # Perform a BFS to get the levels and find the deepest level
+    levels = nx.single_source_shortest_path_length(G, root)
+    max_level = max(levels.values())
+
+    # The broadcast time is the deepest level
+    broadcast_time = max_level
+
+    # Find nodes that achieve this broadcast time
+    broadcast_centers = {node for node in G.nodes() if max(nx.single_source_shortest_path_length(G, node).values()) == broadcast_time}
+
+    return broadcast_time, broadcast_centers
 
 @not_implemented_for('directed')
 @not_implemented_for('multigraph')
@@ -87,4 +110,19 @@ def tree_broadcast_time(G, node=None):
         In Computing and Combinatorics. COCOON 2019
         (Ed. D. Z. Du and C. Tian.) Springer, pp. 240-253, 2019.
     """
-    pass
+    if not nx.is_tree(G):
+        raise NetworkXError("The graph G must be a tree.")
+
+    if node is None:
+        # If node is None, return the broadcast time of the tree
+        return tree_broadcast_center(G)[0]
+    else:
+        # If node is specified, return its broadcast time
+        if node not in G:
+            raise NetworkXError(f"Node {node} is not in the graph.")
+        
+        # Perform BFS from the specified node
+        levels = nx.single_source_shortest_path_length(G, node)
+        
+        # The broadcast time is the maximum level (depth) from the node
+        return max(levels.values())
