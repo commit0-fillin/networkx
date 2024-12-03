@@ -44,7 +44,24 @@ def color(G):
     >>> print(G.nodes[1]["bipartite"])
     0
     """
-    pass
+    if not is_bipartite(G):
+        raise nx.NetworkXError("Graph is not bipartite.")
+    
+    color = {}
+    for component in nx.connected_components(G):
+        start = next(iter(component))
+        color[start] = 1
+        queue = [start]
+        while queue:
+            node = queue.pop(0)
+            for neighbor in G[node]:
+                if neighbor not in color:
+                    color[neighbor] = 1 - color[node]
+                    queue.append(neighbor)
+                elif color[neighbor] == color[node]:
+                    raise nx.NetworkXError("Graph is not bipartite.")
+    
+    return color
 
 @nx._dispatchable
 def is_bipartite(G):
@@ -65,7 +82,11 @@ def is_bipartite(G):
     --------
     color, is_bipartite_node_set
     """
-    pass
+    try:
+        color(G)
+        return True
+    except nx.NetworkXError:
+        return False
 
 @nx._dispatchable
 def is_bipartite_node_set(G, nodes):
@@ -93,7 +114,21 @@ def is_bipartite_node_set(G, nodes):
     For connected graphs the bipartite sets are unique.  This function handles
     disconnected graphs.
     """
-    pass
+    S = set(nodes)
+    if len(S) != len(nodes):
+        raise nx.AmbiguousSolution("Input nodes are not distinct.")
+    
+    T = set(G) - S
+    
+    for node in S:
+        if any(neighbor in S for neighbor in G[node]):
+            return False
+    
+    for node in T:
+        if any(neighbor in T for neighbor in G[node]):
+            return False
+    
+    return True
 
 @nx._dispatchable
 def sets(G, top_nodes=None):
@@ -145,7 +180,24 @@ def sets(G, top_nodes=None):
     color
 
     """
-    pass
+    if not is_bipartite(G):
+        raise nx.NetworkXError("Graph is not bipartite.")
+    
+    if top_nodes is not None:
+        X = set(top_nodes)
+        Y = set(G) - X
+        if is_bipartite_node_set(G, X):
+            return (X, Y)
+        else:
+            raise nx.NetworkXError("Graph is not bipartite with the given top_nodes.")
+    
+    if len(list(connected_components(G))) > 1:
+        raise AmbiguousSolution("Graph is disconnected, and no top_nodes were specified.")
+    
+    c = color(G)
+    X = {n for n, col in c.items() if col == 1}
+    Y = set(G) - X
+    return (X, Y)
 
 @nx._dispatchable(graphs='B')
 def density(B, nodes):
@@ -186,7 +238,11 @@ def density(B, nodes):
     --------
     color
     """
-    pass
+    n = len(nodes)
+    m = len(set(B) - set(nodes))
+    edge_count = sum(1 for _ in B.edges(nodes))
+    max_edges = n * m
+    return edge_count / max_edges if max_edges > 0 else 0.0
 
 @nx._dispatchable(graphs='B', edge_attrs='weight')
 def degrees(B, nodes, weight=None):
@@ -230,4 +286,10 @@ def degrees(B, nodes, weight=None):
     --------
     color, density
     """
-    pass
+    X = set(nodes)
+    Y = set(B) - X
+    
+    degX = {node: B.degree(node, weight=weight) for node in X}
+    degY = {node: B.degree(node, weight=weight) for node in Y}
+    
+    return (degX, degY)
