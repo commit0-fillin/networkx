@@ -79,7 +79,18 @@ def node_redundancy(G, nodes=None):
        Social Networks 30(1), 31--48.
 
     """
-    pass
+    if nodes is None:
+        nodes = G.nodes()
+    
+    redundancy = {}
+    for v in nodes:
+        try:
+            redundancy[v] = _node_redundancy(G, v)
+        except NetworkXError as e:
+            # Re-raise the error with more context
+            raise NetworkXError(f"Error computing redundancy for node {v}: {str(e)}")
+    
+    return redundancy
 
 def _node_redundancy(G, v):
     """Returns the redundancy of the node `v` in the bipartite graph `G`.
@@ -92,4 +103,14 @@ def _node_redundancy(G, v):
     `v` must have at least two neighbors in `G`.
 
     """
-    pass
+    neighbors = set(G[v])
+    if len(neighbors) < 2:
+        raise NetworkXError(f"Node {v} has fewer than two neighbors")
+    
+    overlap = 0
+    for u, w in combinations(neighbors, 2):
+        if any(n for n in G[u] & G[w] if n != v):
+            overlap += 1
+    
+    max_possible_overlap = len(neighbors) * (len(neighbors) - 1) / 2
+    return overlap / max_possible_overlap if max_possible_overlap > 0 else 0
