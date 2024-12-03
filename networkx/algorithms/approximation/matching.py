@@ -38,4 +38,15 @@ def min_maximal_matching(G):
     ----------
     .. [1] Vazirani, Vijay Approximation Algorithms (2001)
     """
-    pass
+    matching = set()
+    nodes = set(G.nodes())
+
+    while nodes:
+        u = nodes.pop()
+        for v in G.neighbors(u):
+            if v in nodes:
+                matching.add((u, v))
+                nodes.discard(v)
+                break
+
+    return matching
