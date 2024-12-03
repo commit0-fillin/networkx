@@ -56,4 +56,17 @@ def average_clustering(G, trials=1000, seed=None):
        https://doi.org/10.5445/IR/1000001239
 
     """
-    pass
+    if len(G) < 3:
+        return 0.0
+    
+    triangles = 0
+    for _ in range(trials):
+        node = seed.choice(list(G.nodes()))
+        neighbors = list(G.neighbors(node))
+        if len(neighbors) < 2:
+            continue
+        u, v = seed.sample(neighbors, 2)
+        if G.has_edge(u, v):
+            triangles += 1
+    
+    return triangles / trials
