@@ -1,5 +1,8 @@
 """Functions for computing eigenvector centrality."""
 import math
+import numpy as np
+import scipy as sp
+import scipy.sparse
 import networkx as nx
 from networkx.utils import not_implemented_for
 __all__ = ['eigenvector_centrality', 'eigenvector_centrality_numpy']
@@ -155,7 +158,40 @@ def eigenvector_centrality(G, max_iter=100, tol=1e-06, nstart=None, weight=None)
     .. [7] Power iteration:: https://en.wikipedia.org/wiki/Power_iteration
 
     """
-    pass
+    if len(G) == 0:
+        raise nx.NetworkXPointlessConcept('Cannot compute eigenvector centrality for the null graph.')
+
+    # Initialize the centrality dictionary
+    x = nstart if nstart is not None else dict.fromkeys(G, 1.0)
+
+    # Normalize the initial vector
+    s = 1.0 / sum(x.values())
+    for k in x:
+        x[k] *= s
+
+    nnodes = G.number_of_nodes()
+
+    # Power iteration: make up to max_iter iterations
+    for _ in range(max_iter):
+        xlast = x
+        x = dict.fromkeys(xlast, 0)
+        # Do the matrix multiplication y = Ax
+        for n, nbrs in G.adjacency():
+            for nbr, w in nbrs.items():
+                x[n] += xlast[nbr] * (w if weight is None else w.get(weight, 1))
+        # Normalize the vector
+        try:
+            s = 1.0 / math.sqrt(sum(v * v for v in x.values()))
+        except ZeroDivisionError:
+            s = 1.0
+        for n in x:
+            x[n] *= s
+        # Check for convergence
+        err = sum(abs(x[n] - xlast[n]) for n in x)
+        if err < nnodes * tol:
+            return x
+
+    raise nx.PowerIterationFailedConvergence(max_iter)
 
 @nx._dispatchable(edge_attrs='weight')
 def eigenvector_centrality_numpy(G, weight=None, max_iter=50, tol=0):
@@ -289,4 +325,26 @@ def eigenvector_centrality_numpy(G, weight=None, max_iter=50, tol=0):
     .. [7] Arnoldi iteration:: https://en.wikipedia.org/wiki/Arnoldi_iteration
 
     """
-    pass
+    import numpy as np
+    import scipy as sp
+    import scipy.sparse  # call as sp.sparse
+
+    if len(G) == 0:
+        raise nx.NetworkXPointlessConcept('Cannot compute eigenvector centrality for the null graph.')
+
+    A = nx.to_scipy_sparse_array(G, nodelist=list(G), weight=weight, dtype=float)
+    if A.shape[0] == 1:
+        return {G.nodes(): 1}
+    
+    # Add self-loops to dangling nodes
+    A = A + sp.sparse.eye(A.shape[0])
+    
+    # Compute the eigenvector
+    eigenvalues, eigenvectors = sp.sparse.linalg.eigs(A.T, k=1, which='LR', maxiter=max_iter, tol=tol)
+    largest = eigenvectors.flatten().real
+    
+    # Normalize the eigenvector
+    norm = np.sign(largest.sum()) * np.linalg.norm(largest)
+    centrality = dict(zip(G, map(float, largest / norm)))
+    
+    return centrality
