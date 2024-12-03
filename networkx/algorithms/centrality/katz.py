@@ -133,7 +133,50 @@ def katz_centrality(G, alpha=0.1, beta=1.0, max_iter=1000, tol=1e-06, nstart=Non
        Psychometrika 18(1):39–43, 1953
        https://link.springer.com/content/pdf/10.1007/BF02289026.pdf
     """
-    pass
+    from networkx.utils import not_implemented_for
+
+    @not_implemented_for('multigraph')
+    def _katz_centrality(G, alpha, beta, max_iter, tol, nstart, weight):
+        if len(G) == 0:
+            return {}
+
+        if isinstance(beta, dict):
+            if set(beta) != set(G):
+                raise nx.NetworkXError('beta dictionary must have a value for every node')
+            b = beta
+        else:
+            b = dict((n, beta) for n in G)
+
+        if nstart is None:
+            x = dict((n, 0) for n in G)
+        else:
+            x = nstart
+
+        try:
+            b_length = len(b)
+        except TypeError:
+            b_length = 1
+
+        for _ in range(max_iter):
+            xlast = x
+            x = dict((n, 0) for n in G)
+            for n in x:
+                for nbr in G[n]:
+                    w = G[n][nbr].get(weight, 1) if weight else 1
+                    x[n] += xlast[nbr] * w
+                x[n] = alpha * x[n] + b[n]
+
+            # check convergence
+            err = sum(abs(x[n] - xlast[n]) for n in x)
+            if err < b_length * tol:
+                if normalized:
+                    # normalize to sum = 1
+                    s = sum(x.values())
+                    x = dict((k, v / s) for k, v in x.items())
+                return x
+        raise nx.PowerIterationFailedConvergence(max_iter)
+
+    return _katz_centrality(G, alpha, beta, max_iter, tol, nstart, weight)
 
 @not_implemented_for('multigraph')
 @nx._dispatchable(edge_attrs='weight')
@@ -247,4 +290,33 @@ def katz_centrality_numpy(G, alpha=0.1, beta=1.0, normalized=True, weight=None):
        Psychometrika 18(1):39–43, 1953
        https://link.springer.com/content/pdf/10.1007/BF02289026.pdf
     """
-    pass
+    import numpy as np
+    from networkx.utils import not_implemented_for
+
+    @not_implemented_for('multigraph')
+    def _katz_centrality_numpy(G, alpha, beta, normalized, weight):
+        if len(G) == 0:
+            return {}
+
+        try:
+            nodelist = list(G)
+            A = nx.to_numpy_array(G, nodelist=nodelist, weight=weight)
+            n, m = A.shape
+        except AttributeError as e:
+            msg = "Katz centrality requires NumPy: http://scipy.org/"
+            raise AttributeError(msg) from e
+
+        if isinstance(beta, dict):
+            b = np.array([beta.get(n, 0) for n in nodelist])
+        else:
+            b = np.ones(n) * beta
+
+        I = np.eye(n, m)
+        x = np.linalg.solve(I - alpha * A.T, b)
+
+        if normalized:
+            x = x / x.sum()
+
+        return dict(zip(nodelist, map(float, x)))
+
+    return _katz_centrality_numpy(G, alpha, beta, normalized, weight)
