@@ -37,7 +37,20 @@ def complete_bipartite_graph(n1, n2, create_using=None):
     This function is not imported in the main namespace.
     To use it use nx.bipartite.complete_bipartite_graph
     """
-    pass
+    if create_using is None:
+        G = nx.Graph()
+    else:
+        G = nx.empty_graph(0, create_using)
+
+    if isinstance(n1, numbers.Integral):
+        n1 = range(n1)
+    if isinstance(n2, numbers.Integral):
+        n2 = range(len(n1), len(n1) + n2)
+
+    G.add_nodes_from(n1, bipartite=0)
+    G.add_nodes_from(n2, bipartite=1)
+    G.add_edges_from((u, v) for u in n1 for v in n2)
+    return G
 
 @py_random_state(3)
 @nx._dispatchable(name='bipartite_configuration_model', graphs=None, returns_graph=True)
@@ -74,7 +87,35 @@ def configuration_model(aseq, bseq, create_using=None, seed=None):
     This function is not imported in the main namespace.
     To use it use nx.bipartite.configuration_model
     """
-    pass
+    if create_using is None:
+        create_using = nx.MultiGraph()
+    elif not create_using.is_multigraph():
+        raise nx.NetworkXError("create_using must be a multigraph")
+
+    G = nx.empty_graph(0, create_using)
+    n = len(aseq)
+    m = len(bseq)
+    
+    if sum(aseq) != sum(bseq):
+        raise nx.NetworkXError("Degree sequences must have equal sums")
+
+    # Add nodes with bipartite attribute
+    G.add_nodes_from(range(n), bipartite=0)
+    G.add_nodes_from(range(n, n + m), bipartite=1)
+
+    # Create stubs
+    astubs = list(nx.utils.flatten([n] * d for n, d in enumerate(aseq)))
+    bstubs = list(nx.utils.flatten([n] * d for n, d in enumerate(bseq, start=n)))
+
+    # Shuffle stubs
+    seed = nx.utils.create_random_state(seed)
+    seed.shuffle(astubs)
+    seed.shuffle(bstubs)
+
+    # Add edges
+    G.add_edges_from(zip(astubs, bstubs))
+
+    return G
 
 @nx._dispatchable(name='bipartite_havel_hakimi_graph', graphs=None, returns_graph=True)
 def havel_hakimi_graph(aseq, bseq, create_using=None):
@@ -109,7 +150,44 @@ def havel_hakimi_graph(aseq, bseq, create_using=None):
     This function is not imported in the main namespace.
     To use it use nx.bipartite.havel_hakimi_graph
     """
-    pass
+    if create_using is None:
+        create_using = nx.MultiGraph()
+    elif not create_using.is_multigraph():
+        raise nx.NetworkXError("create_using must be a multigraph")
+
+    G = nx.empty_graph(0, create_using)
+    n = len(aseq)
+    m = len(bseq)
+
+    if sum(aseq) != sum(bseq):
+        raise nx.NetworkXError("Degree sequences must have equal sums")
+
+    # Add nodes with bipartite attribute
+    G.add_nodes_from(range(n), bipartite=0)
+    G.add_nodes_from(range(n, n + m), bipartite=1)
+
+    # Sort degree sequences in descending order
+    aseq = sorted(enumerate(aseq), key=lambda x: x[1], reverse=True)
+    bseq = sorted(enumerate(bseq, start=n), key=lambda x: x[1], reverse=True)
+
+    stubs_left = sum(aseq[i][1] for i in range(n))
+
+    while stubs_left > 0:
+        node_a, deg_a = aseq[0]
+        for i in range(deg_a):
+            if len(bseq) == 0:
+                raise nx.NetworkXError("Not enough stubs in set B")
+            node_b, deg_b = bseq[0]
+            G.add_edge(node_a, node_b)
+            bseq[0] = (node_b, deg_b - 1)
+            if bseq[0][1] == 0:
+                bseq.pop(0)
+            else:
+                bseq = sorted(bseq, key=lambda x: x[1], reverse=True)
+        aseq.pop(0)
+        stubs_left -= deg_a
+
+    return G
 
 @nx._dispatchable(graphs=None, returns_graph=True)
 def reverse_havel_hakimi_graph(aseq, bseq, create_using=None):
