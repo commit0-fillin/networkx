@@ -58,7 +58,45 @@ def boruvka_mst_edges(G, minimum=True, weight='weight', keys=False, data=True, i
         If `ignore_nan is True` then that edge is ignored instead.
 
     """
-    pass
+    if G.is_multigraph():
+        raise nx.NetworkXNotImplemented("Borůvka's algorithm not implemented for multigraphs.")
+
+    # Initialize each node as a separate component
+    components = UnionFind()
+    for node in G:
+        components[node]
+
+    # Initialize the MST edges
+    mst_edges = []
+
+    while components.number_of_sets() > 1:
+        # Find the minimum weight edge for each component
+        min_edges = {}
+        for u, v, d in G.edges(data=True):
+            w = d.get(weight, 1)
+            if ignore_nan and isnan(w):
+                continue
+            if isnan(w):
+                raise ValueError(f"NaN found as an edge weight. Edge {(u, v)}")
+            cu, cv = components[u], components[v]
+            if cu != cv:
+                if cu not in min_edges or (minimum and w < min_edges[cu][2]) or (not minimum and w > min_edges[cu][2]):
+                    min_edges[cu] = (u, v, w)
+                if cv not in min_edges or (minimum and w < min_edges[cv][2]) or (not minimum and w > min_edges[cv][2]):
+                    min_edges[cv] = (u, v, w)
+
+        # Add the minimum weight edges to the MST
+        for u, v, _ in min_edges.values():
+            if components[u] != components[v]:
+                components.union(u, v)
+                mst_edges.append((u, v, G[u][v]))
+
+    # Yield the MST edges
+    for u, v, d in mst_edges:
+        if data:
+            yield (u, v, d)
+        else:
+            yield (u, v)
 
 @nx._dispatchable(edge_attrs={'weight': None, 'partition': None}, preserve_edge_attrs='data')
 def kruskal_mst_edges(G, minimum, weight='weight', keys=True, data=True, ignore_nan=False, partition=None):
@@ -102,7 +140,48 @@ def kruskal_mst_edges(G, minimum, weight='weight', keys=True, data=True, ignore_
         take the following forms: `(u, v)`, `(u, v, d)` or `(u, v, k, d)`
         depending on the `key` and `data` parameters
     """
-    pass
+    # Function to get the weight of an edge
+    def get_weight(edge):
+        return edge[2].get(weight, 1)
+
+    # Sort edges by weight
+    edges = sorted(G.edges(data=True), key=get_weight, reverse=not minimum)
+
+    # Initialize forest with each node in its own tree
+    forest = UnionFind(G)
+    
+    for e in edges:
+        u, v, d = e[:3]
+        
+        # Check if the edge is valid according to the partition
+        if partition is not None:
+            part = d.get(partition, EdgePartition.OPEN)
+            if part == EdgePartition.EXCLUDED:
+                continue
+            elif part == EdgePartition.INCLUDED:
+                if not forest.connected(u, v):
+                    forest.union(u, v)
+                    if G.is_multigraph():
+                        for k, d in G[u][v].items():
+                            if d.get(partition, EdgePartition.OPEN) == EdgePartition.INCLUDED:
+                                yield (u, v, k, d) if keys else (u, v, d) if data else (u, v)
+                                break
+                    else:
+                        yield (u, v, d) if data else (u, v)
+                continue
+        
+        # Check if adding this edge creates a cycle
+        if not forest.connected(u, v):
+            if ignore_nan and isnan(get_weight(e)):
+                continue
+            if isnan(get_weight(e)):
+                raise ValueError(f"NaN found as an edge weight. Edge {(u, v)}")
+            
+            forest.union(u, v)
+            if G.is_multigraph():
+                yield (u, v, e[2].get('key'), d) if keys else (u, v, d) if data else (u, v)
+            else:
+                yield (u, v, d) if data else (u, v)
 
 @nx._dispatchable(edge_attrs='weight', preserve_edge_attrs='data')
 def prim_mst_edges(G, minimum, weight='weight', keys=True, data=True, ignore_nan=False):
@@ -133,7 +212,49 @@ def prim_mst_edges(G, minimum, weight='weight', keys=True, data=True, ignore_nan
         If `ignore_nan is True` then that edge is ignored instead.
 
     """
-    pass
+    if G.is_directed():
+        raise nx.NetworkXError(
+            "Minimum spanning tree not defined for directed graphs.")
+
+    push = heappush
+    pop = heappop
+
+    nodes = list(G)
+    c = count()
+
+    sign = 1 if minimum else -1
+
+    while nodes:
+        u = nodes.pop(0)
+        frontier = []
+        visited = {u}
+        for v, d in G.adj[u].items():
+            wt = d.get(weight, 1)
+            if isnan(wt):
+                if ignore_nan:
+                    continue
+                raise ValueError(f"NaN found as an edge weight. Edge {(u, v)}")
+            push(frontier, (sign * wt, next(c), u, v, d))
+
+        while frontier:
+            W, _, u, v, d = pop(frontier)
+            if v in visited:
+                continue
+            visited.add(v)
+            nodes.remove(v)
+            if G.is_multigraph():
+                yield (u, v, d.get('key'), d) if keys else (u, v, d) if data else (u, v)
+            else:
+                yield (u, v, d) if data else (u, v)
+            for w, d2 in G.adj[v].items():
+                if w in visited:
+                    continue
+                new_weight = d2.get(weight, 1)
+                if isnan(new_weight):
+                    if ignore_nan:
+                        continue
+                    raise ValueError(f"NaN found as an edge weight. Edge {(v, w)}")
+                push(frontier, (sign * new_weight, next(c), v, w, d2))
 ALGORITHMS = {'boruvka': boruvka_mst_edges, 'borůvka': boruvka_mst_edges, 'kruskal': kruskal_mst_edges, 'prim': prim_mst_edges}
 
 @not_implemented_for('directed')
