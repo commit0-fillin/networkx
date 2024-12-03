@@ -79,7 +79,35 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     the interest of speed and generality, that is not required here.
 
     """
-    pass
+    nset1 = set(n for n in nbunch1 if n in G)
+    if nbunch2 is None:
+        nset2 = set(G) - nset1
+    else:
+        nset2 = set(n for n in nbunch2 if n in G)
+    
+    bdy_edges = ((n1, n2) for n1 in nset1 for n2 in G[n1] if n2 in nset2)
+    
+    if G.is_multigraph():
+        if keys:
+            bdy_edges = ((n1, n2, k) for n1, n2 in bdy_edges for k in G[n1][n2])
+        if data:
+            if data is True:
+                if default is None:
+                    bdy_edges = ((u, v, k, d) for u, v, k in bdy_edges
+                                 for d in [G[u][v][k]])
+                else:
+                    bdy_edges = ((u, v, k, G[u][v][k].get(data, default))
+                                 for u, v, k in bdy_edges)
+            else:
+                bdy_edges = ((u, v, k, G[u][v][k].get(data, default))
+                             for u, v, k in bdy_edges)
+    elif data:
+        if data is True:
+            bdy_edges = ((u, v, G[u][v]) for u, v in bdy_edges)
+        else:
+            bdy_edges = ((u, v, G[u][v].get(data, default)) for u, v in bdy_edges)
+    
+    return bdy_edges
 
 @nx._dispatchable
 def node_boundary(G, nbunch1, nbunch2=None):
@@ -133,4 +161,14 @@ def node_boundary(G, nbunch1, nbunch2=None):
     the interest of speed and generality, that is not required here.
 
     """
-    pass
+    nset1 = set(n for n in nbunch1 if n in G)
+    if nbunch2 is None:
+        nset2 = set(G) - nset1
+    else:
+        nset2 = set(n for n in nbunch2 if n in G)
+    
+    bdy_nodes = set()
+    for n1 in nset1:
+        bdy_nodes.update(n2 for n2 in G[n1] if n2 in nset2)
+    
+    return bdy_nodes
