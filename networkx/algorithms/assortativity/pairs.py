@@ -37,7 +37,19 @@ def node_attribute_xy(G, attribute, nodes=None):
     representation (u, v) and (v, u), with the exception of self-loop edges
     which only appear once.
     """
-    pass
+    if nodes is None:
+        nodes = G.nodes()
+    else:
+        nodes = set(nodes)
+
+    for u, v in G.edges():
+        if u in nodes or v in nodes:
+            yield (G.nodes[u].get(attribute), G.nodes[v].get(attribute))
+
+    if not G.is_directed():
+        for u, v in G.edges():
+            if u != v and (u in nodes or v in nodes):
+                yield (G.nodes[v].get(attribute), G.nodes[u].get(attribute))
 
 @nx._dispatchable(edge_attrs='weight')
 def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
@@ -83,4 +95,26 @@ def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
     representation (u, v) and (v, u), with the exception of self-loop edges
     which only appear once.
     """
-    pass
+    if nodes is None:
+        nodes = G.nodes()
+    else:
+        nodes = set(nodes)
+
+    if G.is_directed():
+        degree_func = {
+            'out': G.out_degree,
+            'in': G.in_degree
+        }
+        x_degree = degree_func[x]
+        y_degree = degree_func[y]
+    else:
+        x_degree = y_degree = G.degree
+
+    for u, v in G.edges():
+        if u in nodes or v in nodes:
+            yield (x_degree(u, weight=weight), y_degree(v, weight=weight))
+
+    if not G.is_directed():
+        for u, v in G.edges():
+            if u != v and (u in nodes or v in nodes):
+                yield (x_degree(v, weight=weight), y_degree(u, weight=weight))
