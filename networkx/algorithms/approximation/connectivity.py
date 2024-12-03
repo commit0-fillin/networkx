@@ -73,7 +73,26 @@ def local_node_connectivity(G, source, target, cutoff=None):
         http://eclectic.ss.uci.edu/~drwhite/working.pdf
 
     """
-    pass
+    if cutoff is None:
+        cutoff = min(G.degree(source), G.degree(target))
+
+    if G.is_directed():
+        G = G.to_undirected()
+
+    exclude = set()
+    paths = 0
+
+    while True:
+        try:
+            path = _bidirectional_shortest_path(G, source, target, exclude)
+            exclude.update(set(path) - {source, target})
+            paths += 1
+            if paths == cutoff:
+                break
+        except nx.NetworkXNoPath:
+            break
+
+    return paths
 
 @nx._dispatchable(name='approximate_node_connectivity')
 def node_connectivity(G, s=None, t=None):
@@ -139,7 +158,22 @@ def node_connectivity(G, s=None, t=None):
         http://eclectic.ss.uci.edu/~drwhite/working.pdf
 
     """
-    pass
+    if s is not None and t is not None:
+        return local_node_connectivity(G, s, t)
+    
+    if G.is_directed():
+        G = G.to_undirected()
+    
+    if len(G) < 3:
+        return min(G.degree())
+
+    connectivity = float('inf')
+    for s, t in itertools.combinations(G, 2):
+        connectivity = min(connectivity, local_node_connectivity(G, s, t))
+        if connectivity == 1:
+            return 1
+    
+    return connectivity
 
 @nx._dispatchable(name='approximate_all_pairs_node_connectivity')
 def all_pairs_node_connectivity(G, nbunch=None, cutoff=None):
@@ -199,7 +233,20 @@ def all_pairs_node_connectivity(G, nbunch=None, cutoff=None):
         Node-Independent Paths. Santa Fe Institute Working Paper #01-07-035
         http://eclectic.ss.uci.edu/~drwhite/working.pdf
     """
-    pass
+    if nbunch is None:
+        nbunch = G.nodes()
+    else:
+        nbunch = set(nbunch)
+
+    connectivity = {}
+    for u in nbunch:
+        connectivity[u] = {}
+        for v in nbunch:
+            if u == v:
+                continue
+            connectivity[u][v] = local_node_connectivity(G, u, v, cutoff=cutoff)
+
+    return connectivity
 
 def _bidirectional_shortest_path(G, source, target, exclude):
     """Returns shortest path between source and target ignoring nodes in the
@@ -244,4 +291,38 @@ def _bidirectional_shortest_path(G, source, target, exclude):
         http://eclectic.ss.uci.edu/~drwhite/working.pdf
 
     """
-    pass
+    if source == target:
+        return [source]
+    
+    # Initialize forward and backward frontiers
+    forward_fringe = [source]
+    backward_fringe = [target]
+    
+    # Initialize forward and backward paths
+    forward_paths = {source: [source]}
+    backward_paths = {target: [target]}
+    
+    while forward_fringe and backward_fringe:
+        # Forward pass
+        this_level = forward_fringe
+        forward_fringe = []
+        for v in this_level:
+            for w in G.neighbors(v):
+                if w not in exclude and w not in forward_paths:
+                    forward_paths[w] = forward_paths[v] + [w]
+                    if w in backward_paths:
+                        return forward_paths[w][:-1] + backward_paths[w][::-1]
+                    forward_fringe.append(w)
+        
+        # Backward pass
+        this_level = backward_fringe
+        backward_fringe = []
+        for v in this_level:
+            for w in G.neighbors(v):
+                if w not in exclude and w not in backward_paths:
+                    backward_paths[w] = [w] + backward_paths[v]
+                    if w in forward_paths:
+                        return forward_paths[w] + backward_paths[w][-2::-1]
+                    backward_fringe.append(w)
+    
+    raise nx.NetworkXNoPath(f"No path between {source} and {target}.")
