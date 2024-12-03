@@ -46,4 +46,39 @@ def spectral_bipartivity(G, nodes=None, weight='weight'):
     .. [1] E. Estrada and J. A. Rodríguez-Velázquez, "Spectral measures of
        bipartivity in complex networks", PhysRev E 72, 046105 (2005)
     """
-    pass
+    import numpy as np
+    from scipy import linalg
+
+    if G.number_of_nodes() == 0:
+        return 0.0
+
+    # Create adjacency matrix
+    A = nx.to_numpy_array(G, weight=weight)
+    
+    # Compute the eigenvalues
+    w = linalg.eigvals(A)
+    
+    # Calculate the spectral bipartivity
+    expw = np.exp(w)
+    expmw = np.exp(-w)
+    sb = np.sum(expw + expmw) / (2 * np.sum(expw))
+
+    if nodes is None:
+        return sb
+    else:
+        # Compute eigenvectors
+        w, v = linalg.eig(A)
+        
+        # Calculate node contributions
+        expw = np.exp(w)
+        expmw = np.exp(-w)
+        
+        # Normalize eigenvectors
+        v = v / np.linalg.norm(v, axis=0)
+        
+        sb_dict = {}
+        for node in nodes:
+            i = list(G.nodes()).index(node)
+            sb_dict[node] = np.sum((expw + expmw) * (v[i, :] ** 2)) / (2 * np.sum(expw))
+        
+        return sb_dict
