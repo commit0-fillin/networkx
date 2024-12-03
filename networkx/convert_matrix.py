@@ -114,7 +114,22 @@ def to_pandas_adjacency(G, nodelist=None, dtype=None, order=None, multigraph_wei
     2  0  0  4
 
     """
-    pass
+    import pandas as pd
+    import numpy as np
+
+    if nodelist is None:
+        nodelist = list(G.nodes())
+
+    nodeset = set(nodelist)
+    if len(nodelist) != len(nodeset):
+        raise nx.NetworkXError("Duplicate node names detected.")
+
+    A = nx.to_numpy_array(G, nodelist=nodelist, dtype=dtype, order=order,
+                          multigraph_weight=multigraph_weight,
+                          weight=weight, nonedge=nonedge)
+
+    df = pd.DataFrame(A, index=nodelist, columns=nodelist)
+    return df
 
 @nx._dispatchable(graphs=None, returns_graph=True)
 def from_pandas_adjacency(df, create_using=None):
