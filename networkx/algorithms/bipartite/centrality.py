@@ -67,7 +67,22 @@ def degree_centrality(G, nodes):
         of Social Network Analysis. Sage Publications.
         https://dx.doi.org/10.4135/9781446294413.n28
     """
-    pass
+    if not set(nodes).issubset(G):
+        raise nx.NetworkXError("All nodes in nodes must be in G")
+    
+    n = len(nodes)
+    m = len(G) - n
+    if m == 0:
+        raise nx.NetworkXError("Cannot compute centrality for a one-mode graph.")
+    
+    centrality = {}
+    for v in G:
+        if v in nodes:
+            centrality[v] = G.degree(v) / m
+        else:
+            centrality[v] = G.degree(v) / n
+    
+    return centrality
 
 @nx._dispatchable(name='bipartite_betweenness_centrality')
 def betweenness_centrality(G, nodes):
@@ -149,7 +164,38 @@ def betweenness_centrality(G, nodes):
         of Social Network Analysis. Sage Publications.
         https://dx.doi.org/10.4135/9781446294413.n28
     """
-    pass
+    if not set(nodes).issubset(G):
+        raise nx.NetworkXError("All nodes in nodes must be in G")
+    
+    n = len(nodes)
+    m = len(G) - n
+    if m == 0:
+        raise nx.NetworkXError("Cannot compute centrality for a one-mode graph.")
+    
+    betweenness = dict.fromkeys(G, 0.0)
+    
+    for s in G:
+        # Single-source shortest paths
+        S, P, sigma = nx.algorithms.shortest_paths.weighted._single_source_dijkstra_path_basic(G, s)
+        
+        # Accumulation
+        betweenness = nx.algorithms.centrality.betweenness._accumulate_basic(betweenness, S, P, sigma, s)
+    
+    # Rescaling
+    scale = 1.0
+    for v in G:
+        if v in nodes:
+            s = (n - 1) // m
+            t = (n - 1) % m
+            scale = 0.5 * (m**2 * (s + 1)**2 + m * (s + 1) * (2*t - s - 1) - t * (2*s - t + 3))
+        else:
+            p = (m - 1) // n
+            r = (m - 1) % n
+            scale = 0.5 * (n**2 * (p + 1)**2 + n * (p + 1) * (2*r - p - 1) - r * (2*p - r + 3))
+        
+        betweenness[v] /= scale
+    
+    return betweenness
 
 @nx._dispatchable(name='bipartite_closeness_centrality')
 def closeness_centrality(G, nodes, normalized=True):
@@ -230,4 +276,30 @@ def closeness_centrality(G, nodes, normalized=True):
         of Social Network Analysis. Sage Publications.
         https://dx.doi.org/10.4135/9781446294413.n28
     """
-    pass
+    if not set(nodes).issubset(G):
+        raise nx.NetworkXError("All nodes in nodes must be in G")
+    
+    closeness = {}
+    path_length = nx.shortest_path_length
+    
+    n = len(nodes)
+    m = len(G) - n
+    if m == 0:
+        raise nx.NetworkXError("Cannot compute centrality for a one-mode graph.")
+    
+    def normalize(path_lengths, n, m, v):
+        if v in nodes:
+            return (m + 2 * (n - 1)) / sum(path_lengths.values())
+        else:
+            return (n + 2 * (m - 1)) / sum(path_lengths.values())
+    
+    if normalized:
+        for v in G:
+            sp = path_length(G, source=v)
+            closeness[v] = normalize(sp, n, m, v)
+    else:
+        for v in G:
+            sp = path_length(G, source=v)
+            closeness[v] = sum(1 / d for d in sp.values() if d > 0)
+    
+    return closeness
