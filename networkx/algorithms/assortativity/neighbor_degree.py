@@ -92,4 +92,34 @@ def average_neighbor_degree(G, source='out', target='out', nodes=None, weight=No
        "The architecture of complex weighted networks".
        PNAS 101 (11): 3747–3752 (2004).
     """
-    pass
+    if source not in ("in", "out", "in+out"):
+        raise nx.NetworkXError("source must be one of 'in', 'out', or 'in+out'")
+    if target not in ("in", "out", "in+out"):
+        raise nx.NetworkXError("target must be one of 'in', 'out', or 'in+out'")
+    
+    if G.is_directed():
+        direction = {"out": G.successors, "in": G.predecessors, "in+out": G.neighbors}
+        degree_func = {"out": G.out_degree, "in": G.in_degree, "in+out": G.degree}
+    else:
+        if source != "out" or target != "out":
+            raise nx.NetworkXError("source and target arguments are only supported for directed graphs")
+        direction = {"out": G.neighbors}
+        degree_func = {"out": G.degree}
+    
+    nodes = G.nodes() if nodes is None else nodes
+    avg = {}
+    
+    for n in nodes:
+        neighbors = list(direction[source](n))
+        if len(neighbors) > 0:
+            if weight is None:
+                neighbor_degrees = [degree_func[target](nbr) for nbr in neighbors]
+                avg[n] = sum(neighbor_degrees) / len(neighbors)
+            else:
+                weighted_degrees = sum(G[n][nbr].get(weight, 1) * degree_func[target](nbr) for nbr in neighbors)
+                s = sum(G[n][nbr].get(weight, 1) for nbr in neighbors)
+                avg[n] = weighted_degrees / s if s > 0 else 0
+        else:
+            avg[n] = 0
+    
+    return avg
