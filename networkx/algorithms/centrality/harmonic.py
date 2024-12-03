@@ -60,4 +60,27 @@ def harmonic_centrality(G, nbunch=None, distance=None, sources=None):
     .. [1] Boldi, Paolo, and Sebastiano Vigna. "Axioms for centrality."
            Internet Mathematics 10.3-4 (2014): 222-262.
     """
-    pass
+    if nbunch is None:
+        nbunch = G.nodes()
+    
+    if sources is None:
+        sources = G.nodes()
+    else:
+        sources = [v for v in sources if v in G]
+
+    if distance is not None:
+        path_length = partial(nx.shortest_path_length, weight=distance)
+    else:
+        path_length = nx.shortest_path_length
+
+    harmonic_centrality = {}
+    for node in nbunch:
+        if node not in G:
+            harmonic_centrality[node] = 0.0
+            continue
+        
+        distances = path_length(G, source=node)
+        centrality = sum(1 / d for v, d in distances.items() if v in sources and v != node and d != 0)
+        harmonic_centrality[node] = centrality
+
+    return harmonic_centrality
