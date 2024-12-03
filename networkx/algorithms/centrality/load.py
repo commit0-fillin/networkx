@@ -53,7 +53,21 @@ def newman_betweenness_centrality(G, v=None, cutoff=None, normalized=True, weigh
        Physical Review Letters 87(27):1–4, 2001.
        https://doi.org/10.1103/PhysRevLett.87.278701
     """
-    pass
+    betweenness = dict.fromkeys(G, 0.0)
+    nodes = G.nodes() if v is None else [v]
+    for s in nodes:
+        betweenness.update(_node_betweenness(G, s, cutoff, normalized, weight))
+    
+    # Normalize the betweenness values
+    if normalized:
+        n = len(G)
+        if n <= 2:
+            return betweenness  # No normalization for graphs with 0 or 1 node
+        scale = 1 / ((n - 1) * (n - 2))
+        for v in betweenness:
+            betweenness[v] *= scale
+    
+    return betweenness
 
 def _node_betweenness(G, source, cutoff=False, normalized=True, weight=None):
     """Node betweenness_centrality helper:
@@ -70,7 +84,40 @@ def _node_betweenness(G, source, cutoff=False, normalized=True, weight=None):
 
     If weight is not None then use Dijkstra for finding shortest paths.
     """
-    pass
+    betweenness = dict.fromkeys(G, 0.0)
+    if weight is None:
+        paths = nx.single_source_shortest_path_length(G, source, cutoff)
+        paths = dict(paths)
+    else:
+        paths = nx.single_source_dijkstra_path_length(G, source, cutoff=cutoff, weight=weight)
+    
+    S = []
+    P = {}
+    for v in G:
+        P[v] = []
+    sigma = dict.fromkeys(G, 0.0)
+    sigma[source] = 1.0
+    D = {}
+    
+    for v, dist in paths.items():
+        D[v] = dist
+        if v != source:
+            for w in G.predecessors(v):
+                if D.get(w, float('inf')) == D[v] - G[w][v].get(weight, 1):
+                    sigma[v] += sigma[w]
+                    P[v].append(w)
+            S.append(v)
+    
+    delta = dict.fromkeys(G, 0.0)
+    while S:
+        w = S.pop()
+        coeff = (1 + delta[w]) / sigma[w]
+        for v in P[w]:
+            delta[v] += sigma[v] * coeff
+        if w != source:
+            betweenness[w] += delta[w]
+    
+    return betweenness
 load_centrality = newman_betweenness_centrality
 
 @nx._dispatchable
@@ -97,8 +144,46 @@ def edge_load_centrality(G, cutoff=False):
     which use that edge. Where more than one path is shortest
     the count is divided equally among paths.
     """
-    pass
+    edge_load = dict.fromkeys(G.edges(), 0.0)
+    for s in G:
+        edge_load.update(_edge_betweenness(G, s, cutoff=cutoff))
+    return edge_load
 
 def _edge_betweenness(G, source, nodes=None, cutoff=False):
     """Edge betweenness helper."""
-    pass
+    betweenness = dict.fromkeys(G.edges(), 0.0)
+    if cutoff is False:
+        paths = nx.single_source_shortest_path_length(G, source)
+    else:
+        paths = nx.single_source_shortest_path_length(G, source, cutoff)
+    
+    S = []
+    P = {}
+    for v in G:
+        P[v] = []
+    sigma = dict.fromkeys(G, 0.0)
+    sigma[source] = 1.0
+    D = {}
+    
+    for v, dist in paths.items():
+        D[v] = dist
+        if v != source:
+            for w in G.predecessors(v):
+                if D.get(w, float('inf')) == D[v] - 1:
+                    sigma[v] += sigma[w]
+                    P[v].append(w)
+            S.append(v)
+    
+    delta = dict.fromkeys(G, 0.0)
+    while S:
+        w = S.pop()
+        coeff = (1 + delta[w]) / sigma[w]
+        for v in P[w]:
+            c = sigma[v] * coeff
+            if (v, w) in G.edges():
+                betweenness[(v, w)] += c
+            else:
+                betweenness[(w, v)] += c
+            delta[v] += c
+    
+    return betweenness
