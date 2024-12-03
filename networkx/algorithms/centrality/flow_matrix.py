@@ -16,11 +16,27 @@ class InverseLaplacian:
         self.L1 = L[1:, 1:]
         self.init_solver(L)
 
+    def width(self, L):
+        """Compute the width parameter for the inverse Laplacian."""
+        return min(max(20, L.shape[0] // 10), 100)
+
+    def init_solver(self, L):
+        """Initialize the solver for the inverse Laplacian."""
+        pass  # This method should be implemented in subclasses
+
 class FullInverseLaplacian(InverseLaplacian):
-    pass
+    def init_solver(self, L):
+        """Initialize the full inverse Laplacian solver."""
+        self.IL = np.linalg.inv(L)
 
 class SuperLUInverseLaplacian(InverseLaplacian):
-    pass
+    def init_solver(self, L):
+        """Initialize the SuperLU inverse Laplacian solver."""
+        from scipy.sparse.linalg import splu
+        self.LU = splu(L.tocsc())
 
 class CGInverseLaplacian(InverseLaplacian):
-    pass
+    def init_solver(self, L):
+        """Initialize the Conjugate Gradient inverse Laplacian solver."""
+        from scipy.sparse.linalg import LinearOperator
+        self.L_op = LinearOperator(L.shape, matvec=L.dot)
