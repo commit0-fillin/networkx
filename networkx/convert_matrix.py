@@ -170,7 +170,31 @@ def from_pandas_adjacency(df, create_using=None):
     >>> print(G)
     Graph named 'Graph from pandas adjacency matrix' with 2 nodes and 3 edges
     """
-    pass
+    import pandas as pd
+    import numpy as np
+
+    if not isinstance(df, pd.DataFrame):
+        raise nx.NetworkXError("Input is not a pandas DataFrame")
+
+    if create_using is None:
+        create_using = nx.Graph
+
+    G = nx.empty_graph(0, create_using)
+
+    if G.is_directed() and not G.is_multigraph():
+        G.add_weighted_edges_from(
+            (u, v, df.loc[u, v])
+            for u, v in zip(*df.values.nonzero())
+            if u != v or G.allows_self_loops()
+        )
+    else:
+        G.add_weighted_edges_from(
+            (df.index[u], df.columns[v], df.iloc[u, v])
+            for u, v in zip(*np.triu(df.values.nonzero(), k=0))
+            if u != v or G.allows_self_loops()
+        )
+
+    return G
 
 @nx._dispatchable(preserve_edge_attrs=True)
 def to_pandas_edgelist(G, source='source', target='target', nodelist=None, dtype=None, edge_key=None):
@@ -227,7 +251,37 @@ def to_pandas_edgelist(G, source='source', target='target', nodelist=None, dtype
     1      A      B     9     1
 
     """
-    pass
+    import pandas as pd
+
+    if nodelist is None:
+        edgelist = G.edges(data=True)
+    else:
+        edgelist = G.edges(nodelist, data=True)
+
+    source_nodes = []
+    target_nodes = []
+    edge_data = defaultdict(list)
+
+    if G.is_multigraph():
+        for u, v, key, data in edgelist:
+            source_nodes.append(u)
+            target_nodes.append(v)
+            if edge_key is not None:
+                edge_data[edge_key].append(key)
+            for k, v in data.items():
+                edge_data[k].append(v)
+    else:
+        for u, v, data in edgelist:
+            source_nodes.append(u)
+            target_nodes.append(v)
+            for k, v in data.items():
+                edge_data[k].append(v)
+
+    edge_data[source] = source_nodes
+    edge_data[target] = target_nodes
+
+    df = pd.DataFrame(edge_data, dtype=dtype)
+    return df
 
 @nx._dispatchable(graphs=None, returns_graph=True)
 def from_pandas_edgelist(df, source='source', target='target', edge_attr=None, create_using=None, edge_key=None):
@@ -340,7 +394,44 @@ def from_pandas_edgelist(df, source='source', target='target', edge_attr=None, c
 
 
     """
-    pass
+    import pandas as pd
+
+    if not isinstance(df, pd.DataFrame):
+        raise nx.NetworkXError("Input is not a pandas DataFrame")
+
+    if create_using is None:
+        create_using = nx.Graph
+
+    g = nx.empty_graph(0, create_using)
+
+    if edge_attr is None:
+        g.add_edges_from(zip(df[source], df[target]))
+        return g
+
+    if edge_attr is True:
+        cols = list(df.columns)
+        cols.remove(source)
+        cols.remove(target)
+        if edge_key is not None:
+            cols.remove(edge_key)
+        edge_attr = cols
+
+    if g.is_multigraph():
+        if edge_key is not None:
+            for row in df.itertuples(index=False):
+                s, t = getattr(row, source), getattr(row, target)
+                key = getattr(row, edge_key)
+                g.add_edge(s, t, key=key, **{k: getattr(row, k) for k in edge_attr})
+        else:
+            for row in df.itertuples(index=False):
+                s, t = getattr(row, source), getattr(row, target)
+                g.add_edge(s, t, **{k: getattr(row, k) for k in edge_attr})
+    else:
+        for row in df.itertuples(index=False):
+            s, t = getattr(row, source), getattr(row, target)
+            g.add_edge(s, t, **{k: getattr(row, k) for k in edge_attr})
+
+    return g
 
 @nx._dispatchable(edge_attrs='weight')
 def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight', format='csr'):
@@ -423,35 +514,77 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight', format=
     .. [1] Scipy Dev. References, "Sparse Matrices",
        https://docs.scipy.org/doc/scipy/reference/sparse.html
     """
-    pass
+    import scipy as sp
+    import numpy as np
+
+    if nodelist is None:
+        nodelist = list(G)
+    nlen = len(nodelist)
+    index = {nodelist[i]: i for i in range(nlen)}
+
+    if nlen == 0:
+        raise nx.NetworkXError("Graph has no nodes or edges")
+
+    if G.is_multigraph():
+        entries = ((index[u], index[v], d.get(weight, 1))
+                   for u, v, d in G.edges(nodelist, data=True)
+                   if u in index and v in index)
+    else:
+        entries = ((index[u], index[v], d.get(weight, 1))
+                   for u, v, d in G.edges(nodelist, data=True)
+                   if u in index and v in index)
+
+    if G.is_directed():
+        matrix = sp.sparse.coo_array((nlen, nlen), dtype=dtype)
+    else:
+        matrix = sp.sparse.coo_array((nlen, nlen), dtype=dtype)
+
+    row, col, data = zip(*entries) if entries else ([], [], [])
+    matrix.row = np.array(row)
+    matrix.col = np.array(col)
+    matrix.data = np.array(data)
+    matrix.sum_duplicates()
+
+    if not G.is_directed():
+        matrix = matrix + matrix.T
+
+    return matrix.asformat(format)
 
 def _csr_gen_triples(A):
     """Converts a SciPy sparse array in **Compressed Sparse Row** format to
     an iterable of weighted edge triples.
 
     """
-    pass
+    nrows = A.shape[0]
+    data, indices, indptr = A.data, A.indices, A.indptr
+    for i in range(nrows):
+        for j in range(indptr[i], indptr[i + 1]):
+            yield i, indices[j], data[j]
 
 def _csc_gen_triples(A):
     """Converts a SciPy sparse array in **Compressed Sparse Column** format to
     an iterable of weighted edge triples.
 
     """
-    pass
+    ncols = A.shape[1]
+    data, indices, indptr = A.data, A.indices, A.indptr
+    for i in range(ncols):
+        for j in range(indptr[i], indptr[i + 1]):
+            yield indices[j], i, data[j]
 
 def _coo_gen_triples(A):
     """Converts a SciPy sparse array in **Coordinate** format to an iterable
     of weighted edge triples.
 
     """
-    pass
+    return zip(A.row, A.col, A.data)
 
 def _dok_gen_triples(A):
     """Converts a SciPy sparse array in **Dictionary of Keys** format to an
     iterable of weighted edge triples.
 
     """
-    pass
+    return ((r, c, v) for (r, c), v in A.items())
 
 def _generate_weighted_edges(A):
     """Returns an iterable over (u, v, w) triples, where u and v are adjacent
@@ -460,7 +593,16 @@ def _generate_weighted_edges(A):
     `A` is a SciPy sparse array (in any format).
 
     """
-    pass
+    if A.format == 'csr':
+        return _csr_gen_triples(A)
+    elif A.format == 'csc':
+        return _csc_gen_triples(A)
+    elif A.format == 'coo':
+        return _coo_gen_triples(A)
+    elif A.format == 'dok':
+        return _dok_gen_triples(A)
+    else:
+        raise nx.NetworkXError(f"Unknown sparse matrix format: {A.format}")
 
 @nx._dispatchable(graphs=None, returns_graph=True)
 def from_scipy_sparse_array(A, parallel_edges=False, create_using=None, edge_attribute='weight'):
@@ -526,7 +668,38 @@ def from_scipy_sparse_array(A, parallel_edges=False, create_using=None, edge_att
     AtlasView({0: {'weight': 1}, 1: {'weight': 1}})
 
     """
-    pass
+    import scipy as sp
+    import numpy as np
+
+    G = nx.empty_graph(0, create_using)
+    n, m = A.shape
+    if n != m:
+        raise nx.NetworkXError(f"Adjacency matrix not square: nx,ny={A.shape}")
+    
+    if parallel_edges and G.is_multigraph():
+        # In this case, we assume integer entries in the matrix are
+        # counts of parallel edges in the graph.
+        triples = ((u, v, {'weight': int(d)})
+                   for (u, v, d) in _generate_weighted_edges(A)
+                   if d != 0)
+        if G.is_directed():
+            G.add_edges_from(triples)
+        else:
+            # This is an undirected graph, so we only add the upper triangle.
+            G.add_edges_from((u, v, d) for u, v, d in triples if u <= v)
+    else:
+        # In this case, we assume integer entries in the matrix are
+        # weights of single edges in the graph.
+        triples = ((u, v, {edge_attribute: d})
+                   for (u, v, d) in _generate_weighted_edges(A)
+                   if d != 0)
+        if G.is_directed():
+            G.add_edges_from(triples)
+        else:
+            # This is an undirected graph, so we only add the upper triangle.
+            G.add_edges_from((u, v, d) for u, v, d in triples if u <= v)
+
+    return G
 
 @nx._dispatchable(edge_attrs='weight')
 def to_numpy_array(G, nodelist=None, dtype=None, order=None, multigraph_weight=sum, weight='weight', nonedge=0.0):
@@ -680,7 +853,61 @@ def to_numpy_array(G, nodelist=None, dtype=None, order=None, multigraph_weight=s
            [-1.,  0., -1.,  0.],
            [ 1., -1.,  0., -1.]])
     """
-    pass
+    import numpy as np
+
+    if nodelist is None:
+        nodelist = list(G)
+    nodeset = set(nodelist)
+    if len(nodelist) != len(nodeset):
+        raise nx.NetworkXError("Duplicate node names detected.")
+
+    nlen = len(nodelist)
+    index = dict(zip(nodelist, range(nlen)))
+
+    if G.is_multigraph():
+        if weight is not None:
+            edges = G.edges(nodelist, data=weight, keys=True)
+            edge_weights = defaultdict(list)
+            for u, v, k, d in edges:
+                edge_weights[(u, v)].append(d)
+        else:
+            edges = G.edges(nodelist, data=True, keys=True)
+            edge_weights = defaultdict(list)
+            for u, v, k, d in edges:
+                edge_weights[(u, v)].append(d)
+    else:
+        if weight is not None:
+            edges = G.edges(nodelist, data=weight)
+        else:
+            edges = G.edges(nodelist, data=True)
+        edge_weights = defaultdict(list)
+        for u, v, d in edges:
+            edge_weights[(u, v)].append(d)
+
+    if dtype is None:
+        dtype = float
+
+    if weight is None and isinstance(dtype, np.dtype) and dtype.names:
+        labels = dtype.names
+        A = np.full((nlen, nlen), nonedge, dtype=dtype)
+        for (u, v), attrs in edge_weights.items():
+            i, j = index[u], index[v]
+            for label in labels:
+                values = [attr.get(label, nonedge) for attr in attrs]
+                A[i, j][label] = multigraph_weight(values)
+                if not G.is_directed():
+                    A[j, i][label] = A[i, j][label]
+    else:
+        A = np.full((nlen, nlen), nonedge, dtype=dtype)
+        for (u, v), weights in edge_weights.items():
+            i, j = index[u], index[v]
+            w = multigraph_weight(weights) if len(weights) > 1 else weights[0]
+            A[i, j] = w
+            if not G.is_directed():
+                A[j, i] = w
+
+    A = np.asarray(A, dtype=dtype, order=order)
+    return A
 
 @nx._dispatchable(graphs=None, returns_graph=True)
 def from_numpy_array(A, parallel_edges=False, create_using=None, edge_attr='weight'):
@@ -779,4 +1006,49 @@ def from_numpy_array(A, parallel_edges=False, create_using=None, edge_attr='weig
     1.0
 
     """
-    pass
+    import numpy as np
+
+    kind_to_python_type = {
+        'f': float,
+        'i': int,
+        'u': int,
+        'b': bool,
+        'c': complex,
+        'S': str,
+        'U': str,
+        'V': 'void'
+    }
+
+    G = nx.empty_graph(0, create_using)
+    n, m = A.shape
+    if n != m:
+        raise nx.NetworkXError(f"Adjacency matrix not square: nx,ny={A.shape}")
+
+    dt = A.dtype
+    try:
+        python_type = kind_to_python_type[dt.kind]
+    except Exception:
+        raise TypeError(f"Unknown numpy data type: {dt}")
+
+    # Make sure we get even the isolated nodes of the graph.
+    G.add_nodes_from(range(n))
+    # Get a list of all the entries in the array with nonzero entries. These
+    # coordinates become edges in the graph. (convert to int from np.int64)
+    edges = ((int(e[0]), int(e[1])) for e in zip(*np.asarray(A).nonzero()))
+
+    # handle multigraphs
+    if parallel_edges and G.is_multigraph():
+        edges = ((u, v, k) for (u, v) in edges for k in range(int(A[u, v])))
+
+    # update the graph
+    if edge_attr is None:
+        G.add_edges_from(edges)
+    else:
+        if python_type is 'void':
+            # We have a structured array. Convert it to a list of tuples.
+            edge_data = {e[0]: tuple(e) for e in A[np.nonzero(A)]}
+            G.add_edges_from((u, v, edge_data[(u, v)]) for (u, v) in edges)
+        else:
+            G.add_edges_from((u, v, {edge_attr: python_type(A[u, v])}) for (u, v) in edges)
+
+    return G
