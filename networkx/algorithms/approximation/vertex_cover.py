@@ -64,4 +64,33 @@ def min_weighted_vertex_cover(G, weight=None):
        <http://www.cs.technion.ac.il/~reuven/PDF/vc_lr.pdf>
 
     """
-    pass
+    import heapq
+    
+    # If no weight is provided, use unit weights
+    if weight is None:
+        weight_func = lambda node: 1
+    else:
+        weight_func = lambda node: G.nodes[node].get(weight, 1)
+    
+    # Initialize the cover set and the edge heap
+    cover = set()
+    edge_heap = []
+    
+    # Populate the edge heap with (weight, edge) tuples
+    for u, v in G.edges():
+        w = min(weight_func(u), weight_func(v))
+        heapq.heappush(edge_heap, (-w, (u, v)))  # Use negative weight for max-heap
+    
+    # Process edges until the heap is empty
+    while edge_heap:
+        w, (u, v) = heapq.heappop(edge_heap)
+        w = -w  # Convert back to positive weight
+        
+        # If neither node is in the cover, add the one with lower weight
+        if u not in cover and v not in cover:
+            if weight_func(u) <= weight_func(v):
+                cover.add(u)
+            else:
+                cover.add(v)
+    
+    return cover
