@@ -59,7 +59,24 @@ def not_implemented_for(*graph_types):
        def sp_np_function(G):
            pass
     """
-    pass
+    def _not_implemented_for(f):
+        @wraps(f)
+        def _check(G, *args, **kwargs):
+            graph_types_set = set(graph_types)
+            graph_attributes = set()
+            if G.is_directed():
+                graph_attributes.add("directed")
+            else:
+                graph_attributes.add("undirected")
+            if G.is_multigraph():
+                graph_attributes.add("multigraph")
+            else:
+                graph_attributes.add("graph")
+            if graph_attributes & graph_types_set:
+                raise nx.NetworkXNotImplemented(f"not implemented for {' '.join(graph_attributes & graph_types_set)} type")
+            return f(G, *args, **kwargs)
+        return _check
+    return _not_implemented_for
 fopeners = {'.gz': gzip.open, '.gzip': gzip.open, '.bz2': bz2.BZ2File}
 _dispatch_dict = defaultdict(lambda: open, **fopeners)
 
@@ -138,7 +155,38 @@ def open_file(path_arg, mode='r'):
     Instead, we use a try block, as shown above.
     When we exit the function, fobj will be closed, if it should be, by the decorator.
     """
-    pass
+    def _open_file(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Get the path argument
+            if isinstance(path_arg, int):
+                path = args[path_arg]
+            else:
+                path = kwargs.get(path_arg)
+
+            # Check if the path is already a file-like object
+            if hasattr(path, 'read') or hasattr(path, 'write'):
+                return func(*args, **kwargs)
+
+            # Open the file
+            ext = splitext(path)[-1]
+            fobj = _dispatch_dict.get(ext, open)(path, mode=mode)
+
+            # Replace the path argument with the file object
+            if isinstance(path_arg, int):
+                new_args = list(args)
+                new_args[path_arg] = fobj
+                args = tuple(new_args)
+            else:
+                kwargs[path_arg] = fobj
+
+            try:
+                return func(*args, **kwargs)
+            finally:
+                fobj.close()
+
+        return wrapper
+    return _open_file
 
 def nodes_or_number(which_args):
     """Decorator to allow number of nodes or container of nodes.
@@ -185,7 +233,32 @@ def nodes_or_number(which_args):
            # presumably r is a number. It is not handled by this decorator.
            # n is converted to a list of nodes
     """
-    pass
+    def _nodes_or_number(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            sig = signature(func)
+            params = list(sig.parameters.keys())
+
+            if isinstance(which_args, (str, int)):
+                which_args = [which_args]
+
+            for arg in which_args:
+                if isinstance(arg, int):
+                    arg_name = params[arg]
+                    if arg < len(args):
+                        args = list(args)
+                        if isinstance(args[arg], int):
+                            args[arg] = range(args[arg])
+                        args = tuple(args)
+                else:
+                    arg_name = arg
+                    if arg_name in kwargs:
+                        if isinstance(kwargs[arg_name], int):
+                            kwargs[arg_name] = range(kwargs[arg_name])
+
+            return func(*args, **kwargs)
+        return wrapper
+    return _nodes_or_number
 
 def np_random_state(random_state_argument):
     """Decorator to generate a numpy RandomState or Generator instance.
@@ -231,7 +304,26 @@ def np_random_state(random_state_argument):
     --------
     py_random_state
     """
-    pass
+    def _np_random_state(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            sig = signature(func)
+            params = list(sig.parameters.keys())
+
+            if isinstance(random_state_argument, int):
+                random_state_arg_name = params[random_state_argument]
+                if random_state_argument < len(args):
+                    args = list(args)
+                    args[random_state_argument] = create_random_state(args[random_state_argument])
+                    args = tuple(args)
+            else:
+                random_state_arg_name = random_state_argument
+                if random_state_arg_name in kwargs:
+                    kwargs[random_state_arg_name] = create_random_state(kwargs[random_state_arg_name])
+
+            return func(*args, **kwargs)
+        return wrapper
+    return _np_random_state
 
 def py_random_state(random_state_argument):
     """Decorator to generate a random.Random instance (or equiv).
@@ -289,7 +381,26 @@ def py_random_state(random_state_argument):
     --------
     np_random_state
     """
-    pass
+    def _py_random_state(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            sig = signature(func)
+            params = list(sig.parameters.keys())
+
+            if isinstance(random_state_argument, int):
+                random_state_arg_name = params[random_state_argument]
+                if random_state_argument < len(args):
+                    args = list(args)
+                    args[random_state_argument] = create_py_random_state(args[random_state_argument])
+                    args = tuple(args)
+            else:
+                random_state_arg_name = random_state_argument
+                if random_state_arg_name in kwargs:
+                    kwargs[random_state_arg_name] = create_py_random_state(kwargs[random_state_arg_name])
+
+            return func(*args, **kwargs)
+        return wrapper
+    return _py_random_state
 
 class argmap:
     """A decorator to apply a map to arguments before calling the function
@@ -676,7 +787,15 @@ class argmap:
         [1] https://github.com/networkx/networkx/issues/4732
 
         """
-        pass
+        if hasattr(func, '__compiled__'):
+            return func
+
+        argmap = func.__argmap__
+        compiled = argmap.compile(func.__wrapped__)
+        func.__code__ = compiled.__code__
+        func.__globals__.update(compiled.__globals__)
+        func.__compiled__ = True
+        return func
 
     def __call__(self, f):
         """Construct a lazily decorated wrapper of f.
@@ -739,7 +858,8 @@ class argmap:
         count : int
             An integer unique to this Python session (simply counts from zero)
         """
-        pass
+        cls.__count += 1
+        return cls.__count
     _bad_chars = re.compile('[^a-zA-Z0-9_]')
 
     @classmethod
@@ -758,7 +878,12 @@ class argmap:
             The mangled version of `f.__name__` (if `f.__name__` exists) or `f`
 
         """
-        pass
+        if hasattr(f, '__name__'):
+            name = f.__name__
+        else:
+            name = str(f)
+        name = cls._bad_chars.sub('_', name)
+        return f'{name}_{cls._count()}'
 
     def compile(self, f):
         """Compile the decorated function.
@@ -790,7 +915,25 @@ class argmap:
             The decorated file
 
         """
-        pass
+        sig, wrapped_name, functions, mapblock, finallys, mutable_args = self.assemble(f)
+        code = [f'def {sig.name}{sig.def_sig}:']
+        if mutable_args:
+            code.append(f'    {sig.args} = list({sig.args})')
+        code.extend(self._indent(*mapblock))
+        if self._finally:
+            code.append('    try:')
+        code.append(f'        return {wrapped_name}{sig.call_sig}')
+        if self._finally:
+            code.extend(self._indent(*finallys))
+        code = '\n'.join(code)
+        filename = f'argmap compilation {self._count()}'
+        compiled = compile(code, filename, 'exec')
+        ns = {}
+        exec(compiled, {**f.__globals__, **functions}, ns)
+        func = ns[sig.name]
+        func._code = code
+        func.__wrapped__ = f
+        return func
 
     def assemble(self, f):
         """Collects components of the source for the decorated function wrapping f.
@@ -832,7 +975,35 @@ class argmap:
             via their indices. The compile method then turns the argument
             tuple into a list so that the arguments can be modified.
         """
-        pass
+        if hasattr(f, '__argmap__'):
+            sig, wrapped_name, functions, mapblock, finallys, mutable_args = f.__argmap__.assemble(f.__wrapped__)
+        else:
+            sig = self.signature(f)
+            wrapped_name = self._name(f)
+            functions = {id(f): (wrapped_name, f)}
+            mapblock = []
+            finallys = []
+            mutable_args = False
+
+        func_name = self._name(self._func)
+        functions[id(self._func)] = (func_name, self._func)
+
+        for arg in self._args:
+            if isinstance(arg, int):
+                mutable_args = True
+                arg_name = sig.names[arg]
+            elif isinstance(arg, str):
+                arg_name = arg
+            else:
+                raise ValueError(f"Invalid argument specifier: {arg}")
+
+            if self._finally:
+                mapblock.append(f"{arg_name}, {arg_name}_finally = {func_name}({arg_name})")
+                finallys.append(f"{arg_name}_finally()")
+            else:
+                mapblock.append(f"{arg_name} = {func_name}({arg_name})")
+
+        return sig, wrapped_name, functions, mapblock, finallys, mutable_args
 
     @classmethod
     def signature(cls, f):
@@ -868,7 +1039,48 @@ class argmap:
         to construct a string of source code for the decorated function.
 
         """
-        pass
+        name = cls._name(f)
+        sig = inspect.signature(f)
+        def_parts = []
+        call_parts = []
+        names = {}
+        n_positional = 0
+        args = kwargs = None
+
+        for i, (param_name, param) in enumerate(sig.parameters.items()):
+            names[i] = names[param_name] = param_name
+
+            if param.kind == inspect.Parameter.POSITIONAL_ONLY:
+                def_parts.append(param_name)
+                call_parts.append(param_name)
+                n_positional += 1
+            elif param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                if param.default is inspect.Parameter.empty:
+                    def_parts.append(param_name)
+                    call_parts.append(param_name)
+                    n_positional += 1
+                else:
+                    def_parts.append(f'{param_name}={param_name}')
+                    call_parts.append(f'{param_name}={param_name}')
+            elif param.kind == inspect.Parameter.VAR_POSITIONAL:
+                def_parts.append(f'*{param_name}')
+                call_parts.append(f'*{param_name}')
+                args = param_name
+            elif param.kind == inspect.Parameter.KEYWORD_ONLY:
+                if param.default is inspect.Parameter.empty:
+                    def_parts.append(f'{param_name}')
+                else:
+                    def_parts.append(f'{param_name}={param_name}')
+                call_parts.append(f'{param_name}={param_name}')
+            elif param.kind == inspect.Parameter.VAR_KEYWORD:
+                def_parts.append(f'**{param_name}')
+                call_parts.append(f'**{param_name}')
+                kwargs = param_name
+
+        def_sig = f"({', '.join(def_parts)})"
+        call_sig = f"({', '.join(call_parts)})"
+
+        return cls.Signature(name, sig, def_sig, call_sig, names, n_positional, args, kwargs)
     Signature = collections.namedtuple('Signature', ['name', 'signature', 'def_sig', 'call_sig', 'names', 'n_positional', 'args', 'kwargs'])
 
     @staticmethod
@@ -889,7 +1101,12 @@ class argmap:
         Non-list objects contained in nestlist
 
         """
-        pass
+        for item in nestlist:
+            if isinstance(item, list) and id(item) not in visited:
+                visited.add(id(item))
+                yield from argmap._flatten(item, visited)
+            else:
+                yield item
     _tabs = ' ' * 64
 
     @staticmethod
@@ -927,7 +1144,18 @@ class argmap:
             finally:
              pass#'''
         """
-        pass
+        indent = 0
+        code = []
+        for line in argmap._flatten(lines, set()):
+            if line.endswith(':'):
+                code.append(f'{argmap._tabs[:indent]}{line}')
+                indent += 1
+            elif line.endswith('#'):
+                indent = max(0, indent - 1)
+                code.append(f'{argmap._tabs[:indent]}{line}')
+            else:
+                code.append(f'{argmap._tabs[:indent]}{line}')
+        return '\n'.join(code)
 
 def deprecate_positional_args(func=None, *, version):
     """Decorator for methods that issues warnings for positional arguments.
@@ -942,4 +1170,31 @@ def deprecate_positional_args(func=None, *, version):
     version : callable, default="1.3"
         The version when positional arguments will result in error.
     """
-    pass
+    def _deprecate_positional_args(f):
+        sig = inspect.signature(f)
+        kwonly_args = []
+        for name, param in sig.parameters.items():
+            if param.kind == inspect.Parameter.KEYWORD_ONLY:
+                kwonly_args.append(name)
+
+        @wraps(f)
+        def inner(*args, **kwargs):
+            extra_args = len(args) - len(sig.parameters) + len(kwonly_args)
+            if extra_args <= 0:
+                return f(*args, **kwargs)
+            warnings.warn(
+                f"Pass {', '.join(kwonly_args[-extra_args:])} as keyword args. "
+                f"From version {version} passing these as positional arguments "
+                "will result in an error",
+                FutureWarning,
+                stacklevel=2,
+            )
+            kwargs.update(zip(kwonly_args[-extra_args:], args[-extra_args:]))
+            return f(*args[:-extra_args], **kwargs)
+
+        return inner
+
+    if func is None:
+        return _deprecate_positional_args
+    else:
+        return _deprecate_positional_args(func)
