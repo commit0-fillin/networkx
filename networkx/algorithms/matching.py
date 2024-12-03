@@ -35,7 +35,17 @@ def maximal_matching(G):
     The algorithm greedily selects a maximal matching M of the graph G
     (i.e. no superset of M exists). It runs in $O(|E|)$ time.
     """
-    pass
+    matching = set()
+    nodes = set(G.nodes())
+
+    for u, v in G.edges():
+        if u not in nodes or v not in nodes:
+            continue
+        matching.add((u, v))
+        nodes.remove(u)
+        nodes.remove(v)
+
+    return matching
 
 def matching_dict_to_set(matching):
     """Converts matching dict format to matching set format
@@ -51,7 +61,7 @@ def matching_dict_to_set(matching):
     example, key ``u`` with value ``v`` and key ``v`` with value ``u``.
 
     """
-    pass
+    return set(tuple(sorted((u, v))) for u, v in matching.items() if u < v)
 
 @nx._dispatchable
 def is_matching(G, matching):
@@ -94,7 +104,24 @@ def is_matching(G, matching):
     True
 
     """
-    pass
+    if isinstance(matching, dict):
+        matching = matching_dict_to_set(matching)
+
+    if not all(len(edge) == 2 for edge in matching):
+        raise nx.NetworkXError("Matching is not a collection of 2-tuple edges.")
+
+    nodes = set()
+    for u, v in matching:
+        if u not in G or v not in G:
+            raise nx.NetworkXError("Matching contains an edge to a node not in G.")
+        if u in nodes or v in nodes:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        nodes.add(u)
+        nodes.add(v)
+
+    return True
 
 @nx._dispatchable
 def is_maximal_matching(G, matching):
@@ -127,7 +154,18 @@ def is_maximal_matching(G, matching):
     True
 
     """
-    pass
+    if not is_matching(G, matching):
+        return False
+
+    if isinstance(matching, dict):
+        matching = matching_dict_to_set(matching)
+
+    matched_nodes = set(node for edge in matching for node in edge)
+    for u, v in G.edges():
+        if u not in matched_nodes and v not in matched_nodes:
+            return False
+
+    return True
 
 @nx._dispatchable
 def is_perfect_matching(G, matching):
@@ -161,7 +199,14 @@ def is_perfect_matching(G, matching):
     True
 
     """
-    pass
+    if not is_matching(G, matching):
+        return False
+
+    if isinstance(matching, dict):
+        matching = matching_dict_to_set(matching)
+
+    matched_nodes = set(node for edge in matching for node in edge)
+    return len(matched_nodes) == len(G)
 
 @not_implemented_for('multigraph')
 @not_implemented_for('directed')
@@ -214,7 +259,19 @@ def min_weight_matching(G, weight='weight'):
     --------
     max_weight_matching
     """
-    pass
+    # Find the maximum weight
+    max_weight = max(d.get(weight, 1) for u, v, d in G.edges(data=True))
+
+    # Create a new graph with modified weights
+    H = G.copy()
+    for u, v, d in H.edges(data=True):
+        d[weight] = (max_weight + 1) - d.get(weight, 1)
+
+    # Run max_weight_matching with the new weights
+    matching = max_weight_matching(H, maxcardinality=True, weight=weight)
+
+    # Convert the result to a set of edges
+    return matching_dict_to_set(matching)
 
 @not_implemented_for('multigraph')
 @not_implemented_for('directed')
@@ -278,4 +335,56 @@ def max_weight_matching(G, maxcardinality=False, weight='weight'):
     .. [1] "Efficient Algorithms for Finding Maximum Matching in Graphs",
        Zvi Galil, ACM Computing Surveys, 1986.
     """
-    pass
+    from networkx.algorithms.matching import INFINITY, maximal_matching
+
+    if not G:
+        return set()
+
+    # Initialize matching and dual variables
+    matching = {}
+    dual = {v: 0 for v in G}
+    allowance = {(u, v): 0 for u, v in G.edges()}
+
+    def slack(u, v):
+        return dual[u] + dual[v] - G[u][v].get(weight, 1)
+
+    def update_allowance(u, v):
+        allowance[(u, v)] = allowance[(v, u)] = slack(u, v)
+
+    for u, v in G.edges():
+        update_allowance(u, v)
+
+    def find_augmenting_path(v):
+        seen = {}
+        def recurse(v):
+            for u in G[v]:
+                if u not in seen:
+                    seen[u] = v
+                    if u not in matching or recurse(matching[u]):
+                        matching[u] = v
+                        matching[v] = u
+                        return True
+            return False
+        return recurse(v)
+
+    # Find initial matching
+    for v in G:
+        if v not in matching:
+            find_augmenting_path(v)
+
+    while True:
+        # Find a vertex with maximum dual variable
+        v = max(G, key=lambda x: dual[x])
+        if dual[v] == 0:
+            break
+
+        # Find augmenting path
+        if not find_augmenting_path(v):
+            # Update dual variables
+            delta = min(slack(u, v) for u, v in G.edges() if u != v)
+            for u in G:
+                dual[u] -= delta
+            for u, v in G.edges():
+                update_allowance(u, v)
+
+    return matching_dict_to_set(matching)
